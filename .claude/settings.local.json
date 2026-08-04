@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vitest *)",
+      "Bash(awk '/^  - id:/{id=$3} /^    category:/{cat=$2} /^    expected_tier:/{printf \"%-20s %-22s %s\\\\n\", id, cat, $2}' data/input_tier_scenarios.yaml)",
+      "Bash(awk '/^  - id:/{id=$3} /^    category:/{cat=$2} /^    expected_result:/{printf \"%-20s %-26s %s\\\\n\", id, cat, $2}' data/output_behavior_scenarios.yaml)",
+      "Bash(npx vite *)"
+    ]
+  }
+}
