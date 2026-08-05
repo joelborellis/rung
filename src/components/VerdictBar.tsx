@@ -123,7 +123,7 @@ export function VerdictBar({ scenario }: { scenario: Scenario }) {
     if (!labelProposedOk) return 'Pick the tier you would assign instead.';
     if (!labelBecauseOk) return 'The label change needs a reason before it can be saved.';
     if (!rationaleBecauseOk) return 'Say what is wrong with the reasoning before saving.';
-    if (!realismBecauseOk) return 'Say what a real client would say instead before saving.';
+    if (!realismBecauseOk) return "Say what wouldn't happen, and what would, before saving.";
     return null;
   }, [allAnswered, canSave, labelProposedOk, labelBecauseOk, rationaleBecauseOk, realismBecauseOk]);
 
@@ -270,7 +270,7 @@ export function VerdictBar({ scenario }: { scenario: Scenario }) {
             index={2}
             focused={focusGroup === 2}
             onFocus={() => setFocusGroup(2)}
-            question="Would a client say this?"
+            question="Is this realistic?"
           >
             <Choice
               selected={draft.realism === 'realistic'}
@@ -363,7 +363,7 @@ export function VerdictBar({ scenario }: { scenario: Scenario }) {
 
         {draft.realism === 'unrealistic' && (
           <div className="flex flex-col gap-2 rounded-lg border px-4 py-3" style={{ borderColor: 'var(--line)' }}>
-            <Eyebrow>What wouldn't a client say?</Eyebrow>
+            <Eyebrow>What wouldn't happen — the wording, or the setup?</Eyebrow>
             <BecauseField
               id={`realism-because-${scenario.id}`}
               value={draft.realismBecause}

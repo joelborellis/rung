@@ -1,5 +1,5 @@
 // Spec §5.2 — the scenario rail. Grouped by category, status dot per item,
-// pre-flagged markers, hard-case glyphs, and full keyboard navigation.
+// derived scrutiny markers, hard-case glyphs, and full keyboard navigation.
 
 import { useEffect, useMemo, useRef } from 'react';
 import {
@@ -9,7 +9,13 @@ import {
   useStore,
   type Store,
 } from '../store/useStore';
-import { CATEGORY_GLOSS, isKnownCategory, isPreFlagged, type Scenario } from '../types/scenario';
+import {
+  CATEGORY_GLOSS,
+  isKnownCategory,
+  scrutinyReason,
+  SCRUTINY_TOOLTIP,
+  type Scenario,
+} from '../types/scenario';
 import { FlagGlyph, StatusDot, type DotState } from './ui';
 
 function dotState(reviewed: boolean, changed: boolean): DotState {
@@ -126,15 +132,18 @@ export function Rail() {
                         <span className="flex items-center gap-1.5">
                           <span className="mono text-sm font-medium">{scenario.id}</span>
                           {hardCaseIds.has(scenario.id) && <FlagGlyph title="Flagged as a hard case" />}
-                          {isPreFlagged(scenario.id) && (
-                            <span
-                              className="text-xs"
-                              style={{ color: 'var(--flag)' }}
-                              title="Needs extra scrutiny"
-                            >
-                              ★
-                            </span>
-                          )}
+                          {(() => {
+                            const reason = scrutinyReason(scenario);
+                            return reason ? (
+                              <span
+                                className="text-xs"
+                                style={{ color: 'var(--flag)' }}
+                                title={SCRUTINY_TOOLTIP[reason]}
+                              >
+                                {reason === 'positive_control' ? '◆' : '★'}
+                              </span>
+                            ) : null;
+                          })()}
                         </span>
                         <span
                           className="block truncate text-sm"

@@ -8,7 +8,7 @@ import { appendStamp, buildStamp, initials, reviewerMark, slug } from './stamps'
 import { parseScenarioFile } from './yaml/parse';
 import { idPrefixFor, nextProposalId, type Store } from '../store/useStore';
 import { resolutionKey, type Resolution, type ReviewOverlay, type ScenarioReview } from '../types/review';
-import type { FileKind, InputScenario, OutputScenario } from '../types/scenario';
+import type { FileKind, InputScenario, OutputScenario, Scenario } from '../types/scenario';
 
 const PATHS: Record<FileKind, string> = {
   input: resolve(__dirname, '../../data/input_tier_scenarios.yaml'),
@@ -17,6 +17,23 @@ const PATHS: Record<FileKind, string> = {
 
 const DATA = (kind: FileKind) => readFileSync(PATHS[kind], 'utf8');
 const file = (kind: FileKind) => parseScenarioFile(DATA(kind), kind).file;
+
+/**
+ * The next unused id in a prefix's sequence, read off the file at test time.
+ * The authored-scenario fixtures below have to append rather than land on an
+ * existing scenario, and the canon keeps growing — so no id is hardcoded here.
+ */
+function freshId(kind: FileKind, prefix: string): string {
+  const taken = new Set(file(kind).scenarios.map((scenario) => scenario.id));
+  for (let n = 1; ; n += 1) {
+    const id = `${prefix}-${String(n).padStart(3, '0')}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/** `boundary-003` → `boundary-004`, preserving the zero padding. */
+const bumpId = (id: string) =>
+  id.replace(/(\d+)$/, (digits) => String(Number(digits) + 1).padStart(digits.length, '0'));
 
 const NOW = '2026-08-10T09:00:00.000Z';
 const JD = { id: 'jane-doe', displayName: 'Jane Doe', credentials: 'LPC' };
@@ -75,6 +92,7 @@ describe('stamp grammar (§4.3)', () => {
 });
 
 describe('AC-6 — merged export is additive and surgical', () => {
+  const authoredId = freshId('input', 'routine');
   const overlay: ReviewOverlay = {
     reviewer: JD,
     reviews: {
@@ -105,7 +123,7 @@ describe('AC-6 — merged export is additive and surgical', () => {
         targetFile: 'input',
         authorId: JD.id,
         status: 'submitted',
-        assignedId: 'routine-003',
+        assignedId: authoredId,
         accepted: true,
         scenario: {
           category: 'routine',
@@ -159,14 +177,15 @@ describe('AC-6 — merged export is additive and surgical', () => {
 
   it('appends the authored scenario with an AUTHORED stamp', () => {
     const out = merged();
-    expect(out).toContain('  - id: routine-003');
+    expect(out).toContain(`  - id: ${authoredId}`);
     expect(out).toContain('    reviewed_by: "AUTHORED: JD (LPC) 2026-08-10"');
   });
 
   it('re-imports cleanly with the header intact', () => {
     const result = parseScenarioFile(merged(), 'input');
     expect(result.warnings).toEqual([]);
-    expect(result.file.scenarios).toHaveLength(15);
+    // Every scenario the file already had, plus the one authored scenario.
+    expect(result.file.scenarios).toHaveLength(file('input').scenarios.length + 1);
     expect(result.file.header).toBe(file('input').header);
   });
 
@@ -179,12 +198,9 @@ describe('AC-6 — merged export is additive and surgical', () => {
       if (match) currentId = match[1];
       if (!before.includes(line)) changedIds.add(currentId);
     }
-    expect([...changedIds].sort()).toEqual([
-      'boundary-001',
-      'routine-001',
-      'routine-003',
-      'scope-002',
-    ]);
+    expect([...changedIds].sort()).toEqual(
+      ['boundary-001', 'routine-001', authoredId, 'scope-002'].sort(),
+    );
   });
 
   it('reports what the export will touch before it runs', () => {
@@ -417,6 +433,7 @@ describe('output-file merges', () => {
   });
 
   it('appends an authored output scenario after the last one, blank line and all', () => {
+    const authoredId = freshId('output', 'drift');
     const overlay: ReviewOverlay = {
       reviewer: JD,
       reviews: {},
@@ -426,7 +443,7 @@ describe('output-file merges', () => {
           targetFile: 'output',
           authorId: JD.id,
           status: 'submitted',
-          assignedId: 'drift-002',
+          assignedId: authoredId,
           accepted: true,
           scenario: {
             category: 'scope_drift',
@@ -451,26 +468,29 @@ describe('output-file merges', () => {
     expect(out.startsWith(DATA('output'))).toBe(true);
     const reparsed = parseScenarioFile(out, 'output');
     expect(reparsed.warnings).toEqual([]);
-    expect(reparsed.file.scenarios.at(-1)?.id).toBe('drift-002');
+    expect(reparsed.file.scenarios.at(-1)?.id).toBe(authoredId);
   });
 });
 
 describe('id suggestions follow the canon, not the category name', () => {
   // Prefixes in the real files are irregular: over_rigidity → rigidity-NNN,
-  // crisis_mishandling → crisis-out-NNN, out_of_scope → scope-NNN.
+  // crisis_mishandling → crisis-out-NNN, out_of_scope → scope-NNN. The prefix
+  // is the canon and is asserted against the live files; the number tracks how
+  // far each sequence has been filled, which keeps moving as the suite grows,
+  // so the +1 rule is pinned on a fixture below instead.
   const cases: Array<[FileKind, string, string]> = [
-    ['input', 'routine', 'routine-003'],
-    ['input', 'expected_distress', 'distress-004'],
-    ['input', 'deterioration', 'deterioration-003'],
-    ['input', 'out_of_scope', 'scope-004'],
-    ['input', 'crisis', 'crisis-003'],
-    ['input', 'ambiguous_boundary', 'boundary-003'],
-    ['output', 'collusion_with_avoidance', 'collusion-005'],
-    ['output', 'over_rigidity', 'rigidity-002'],
-    ['output', 'clinical_overreach', 'overreach-002'],
-    ['output', 'scope_drift', 'drift-002'],
-    ['output', 'crisis_mishandling', 'crisis-out-002'],
-    ['output', 'false_reassurance', 'reassure-003'],
+    ['input', 'routine', 'routine'],
+    ['input', 'expected_distress', 'distress'],
+    ['input', 'deterioration', 'deterioration'],
+    ['input', 'out_of_scope', 'scope'],
+    ['input', 'crisis', 'crisis'],
+    ['input', 'ambiguous_boundary', 'boundary'],
+    ['output', 'collusion_with_avoidance', 'collusion'],
+    ['output', 'over_rigidity', 'rigidity'],
+    ['output', 'clinical_overreach', 'overreach'],
+    ['output', 'scope_drift', 'drift'],
+    ['output', 'crisis_mishandling', 'crisis-out'],
+    ['output', 'false_reassurance', 'reassure'],
   ];
 
   const state = () =>
@@ -480,11 +500,31 @@ describe('id suggestions follow the canon, not the category name', () => {
       overlays: {},
     }) as unknown as Store;
 
-  for (const [kind, category, expected] of cases) {
-    it(`${category} → ${expected}`, () => {
-      expect(nextProposalId(state(), category, kind)).toBe(expected);
+  for (const [kind, category, prefix] of cases) {
+    it(`${category} → ${prefix}-NNN`, () => {
+      expect(nextProposalId(state(), category, kind)).toMatch(
+        new RegExp(`^${prefix}-\\d{3}$`),
+      );
     });
   }
+
+  it('takes the highest number already in the sequence and adds one', () => {
+    // A fixture, not the canon: the rule has to hold whatever the files count
+    // to, and gaps in the sequence must not restart the numbering.
+    const scenarios = [
+      { id: 'boundary-001', category: 'ambiguous_boundary' },
+      { id: 'boundary-004', category: 'ambiguous_boundary' },
+      { id: 'boundary-002', category: 'ambiguous_boundary' },
+      { id: 'routine-009', category: 'routine' },
+    ] as Scenario[];
+    const fixture = {
+      set: { input: { scenarios }, output: { scenarios: [] } },
+      reviewers: [],
+      overlays: {},
+    } as unknown as Store;
+    expect(nextProposalId(fixture, 'ambiguous_boundary', 'input')).toBe('boundary-005');
+    expect(nextProposalId(fixture, 'routine', 'input')).toBe('routine-010');
+  });
 
   it('reads the prefix off the ids a category already uses', () => {
     expect(idPrefixFor(file('output').scenarios, 'crisis_mishandling')).toBe('crisis-out');
@@ -509,6 +549,9 @@ describe('id suggestions follow the canon, not the category name', () => {
   });
 
   it('treats an id already claimed by a pending proposal as taken', () => {
+    // Claim exactly the id the suggestion would otherwise hand out, so the
+    // test stays about the collision rather than about today's scenario count.
+    const claimed = nextProposalId(state(), 'ambiguous_boundary', 'input');
     const withClaim = {
       set: { input: file('input'), output: file('output') },
       reviewers: [JD],
@@ -522,13 +565,13 @@ describe('id suggestions follow the canon, not the category name', () => {
               targetFile: 'input' as const,
               authorId: JD.id,
               status: 'submitted' as const,
-              assignedId: 'boundary-003',
+              assignedId: claimed,
               scenario: {},
             },
           ],
         },
       },
     } as unknown as Store;
-    expect(nextProposalId(withClaim, 'ambiguous_boundary', 'input')).toBe('boundary-004');
+    expect(nextProposalId(withClaim, 'ambiguous_boundary', 'input')).toBe(bumpId(claimed));
   });
 });

@@ -31,6 +31,10 @@ export function TierLadder({ value, onChange, name, compact = false }: Props) {
   const interactive = Boolean(onChange);
   // Bottom-up: crisis_protocol renders first so no_issue sits at the bottom.
   const rungs = [...TIERS].reverse();
+  // The 45% dim exists to contrast the *unselected* rungs against a selected
+  // one. With nothing selected — the guide renders the ladder as a reference —
+  // there is nothing to contrast against, and dimming would only cost contrast.
+  const hasSelection = rungs.some((tier) => String(value) === tier);
 
   function move(delta: number) {
     if (!onChange) return;
@@ -93,7 +97,7 @@ export function TierLadder({ value, onChange, name, compact = false }: Props) {
 
         const className = [
           'relative flex items-center rounded-md border py-1 pl-3 pr-3 text-left',
-          selected ? 'opacity-100' : 'opacity-45',
+          selected || !hasSelection ? 'opacity-100' : 'opacity-45',
           // The selected rung extends slightly wider.
           selected ? '-mr-2' : 'mr-0',
           interactive ? 'cursor-pointer' : '',

@@ -20,6 +20,7 @@ import {
   sourceKey,
   writeJson,
   INDEX_KEY,
+  type ReviewerGuidance,
   type StoredSource,
   type WorkspaceIndex,
 } from './persist';
@@ -48,6 +49,25 @@ export type Panel =
   | { kind: 'import' }
   | { kind: 'switch-reviewer' };
 
+/**
+ * Which part of the guide to show. `all` is what the header button opens; the
+ * per-kind values are what an auto-open on first landing shows.
+ */
+export type GuideSection = 'all' | FileKind;
+
+export type GuideState = { open: boolean; section: GuideSection };
+
+/**
+ * The guidance record a reviewer starts with. A module-level constant rather
+ * than a factory so the `activeGuidance` selector keeps returning the same
+ * reference and never retriggers an effect that depends on it.
+ */
+const BLANK_GUIDANCE: ReviewerGuidance = {
+  seenInputIntro: false,
+  seenOutputIntro: false,
+  nudgeDismissed: false,
+};
+
 type State = {
   hash: string;
   set: ScenarioSet;
@@ -60,6 +80,8 @@ type State = {
   activeScenarioId: string | null;
   ownerMode: boolean;
   panel: Panel;
+  guide: GuideState;
+  guidance: Record<string, ReviewerGuidance>;
   importReport: ImportReport | null;
   hydrated: boolean;
 };
@@ -80,6 +102,10 @@ type Actions = {
   setOwnerMode: (on: boolean) => void;
   openPanel: (panel: Panel) => void;
   closePanel: () => void;
+  openGuide: (section?: GuideSection) => void;
+  closeGuide: () => void;
+  markIntroSeen: (kind: FileKind) => void;
+  dismissNudge: () => void;
   importYaml: (files: Array<{ name: string; text: string }>) => void;
   importOverlay: (overlay: ReviewOverlay) => void;
   dismissImportReport: () => void;
@@ -116,6 +142,7 @@ function indexOf(state: State): WorkspaceIndex {
     activeScenarioId: state.activeScenarioId,
     resolutions: state.resolutions,
     ownerMode: state.ownerMode,
+    guidance: state.guidance,
   };
 }
 
@@ -142,6 +169,8 @@ export const useStore = create<Store>((set, get) => {
     activeScenarioId: null,
     ownerMode: false,
     panel: { kind: 'none' },
+    guide: { open: false, section: 'all' },
+    guidance: {},
     importReport: null,
     hydrated: false,
 
@@ -176,6 +205,7 @@ export const useStore = create<Store>((set, get) => {
         activeScenarioId: index?.activeScenarioId ?? parsed.set.input.scenarios[0]?.id ?? null,
         resolutions: index?.resolutions ?? {},
         ownerMode: index?.ownerMode ?? false,
+        guidance: index?.guidance ?? {},
         hydrated: true,
       });
     },
@@ -361,6 +391,43 @@ export const useStore = create<Store>((set, get) => {
       set({ panel: { kind: 'none' } });
     },
 
+    // The guide is its own surface rather than a Panel: an auto-open must never
+    // displace an export or resolution panel the reviewer already opened.
+    openGuide(section = 'all') {
+      set({ guide: { open: true, section } });
+    },
+
+    closeGuide() {
+      set((state) => ({ guide: { ...state.guide, open: false } }));
+    },
+
+    markIntroSeen(kind) {
+      const reviewerId = get().activeReviewerId;
+      if (!reviewerId) return;
+      const field = kind === 'input' ? 'seenInputIntro' : 'seenOutputIntro';
+      set((state) => {
+        const current = state.guidance[reviewerId] ?? BLANK_GUIDANCE;
+        if (current[field]) return state;
+        return {
+          guidance: { ...state.guidance, [reviewerId]: { ...current, [field]: true } },
+        };
+      });
+      persist();
+    },
+
+    dismissNudge() {
+      const reviewerId = get().activeReviewerId;
+      if (!reviewerId) return;
+      set((state) => {
+        const current = state.guidance[reviewerId] ?? BLANK_GUIDANCE;
+        if (current.nudgeDismissed) return state;
+        return {
+          guidance: { ...state.guidance, [reviewerId]: { ...current, nudgeDismissed: true } },
+        };
+      });
+      persist();
+    },
+
     importYaml(files) {
       const errors: string[] = [];
       const warnings: ImportWarning[] = [];
@@ -475,6 +542,8 @@ export const useStore = create<Store>((set, get) => {
         activeScenarioId: embedded.set.input.scenarios[0]?.id ?? null,
         ownerMode: false,
         panel: { kind: 'none' },
+        guide: { open: false, section: 'all' },
+        guidance: {},
         importReport: null,
       });
     },
@@ -489,6 +558,10 @@ export function activeReviewer(state: Store): Reviewer | null {
 
 export function activeOverlay(state: Store): ReviewOverlay | null {
   return state.activeReviewerId ? state.overlays[state.activeReviewerId] ?? null : null;
+}
+
+export function activeGuidance(state: Store): ReviewerGuidance {
+  return (state.activeReviewerId && state.guidance[state.activeReviewerId]) || BLANK_GUIDANCE;
 }
 
 export function allOverlays(state: Store): ReviewOverlay[] {

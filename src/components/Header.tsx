@@ -9,10 +9,17 @@ import {
 import { FILE_LABELS, type FileKind } from '../types/scenario';
 import { ProgressRing } from './ui';
 
+/** What each file actually asks the reviewer — the question behind the label. */
+const FILE_SUBTITLES: Record<FileKind, string> = {
+  input: "How should the client's message be handled?",
+  output: "Was the coach's response acceptable?",
+};
+
 export function Header() {
   const activeFile = useStore((state) => state.activeFile);
   const setActiveFile = useStore((state) => state.setActiveFile);
   const openPanel = useStore((state) => state.openPanel);
+  const openGuide = useStore((state) => state.openGuide);
   const reviewer = useStore(activeReviewer);
   const counts = useStore((state: Store) => ({
     input: state.set.input.scenarios.length,
@@ -51,14 +58,26 @@ export function Header() {
               role="tab"
               type="button"
               aria-selected={selected}
-              className="px-3 py-1.5 text-sm font-medium"
+              className="px-3 py-1.5 text-left text-sm font-medium"
               style={{
                 background: selected ? 'var(--accent)' : 'transparent',
                 color: selected ? '#fff' : 'var(--ink)',
               }}
               onClick={() => setActiveFile(kind)}
             >
-              {FILE_LABELS[kind]} {counts[kind]}
+              <span className="block">
+                {FILE_LABELS[kind]} {counts[kind]}
+              </span>
+              {/* The subtitle is the point of the toggle, not decoration — but
+                  it only fits once there is room for two full questions. */}
+              <span
+                className="hidden text-xs font-normal lg:block"
+                style={{
+                  color: selected ? 'rgba(255, 255, 255, 0.86)' : 'color-mix(in srgb, var(--ink) 62%, transparent)',
+                }}
+              >
+                {FILE_SUBTITLES[kind]}
+              </span>
             </button>
           );
         })}
@@ -79,6 +98,9 @@ export function Header() {
             style={{ background: 'var(--accent)' }}
           />
           Reviewing as {reviewer?.displayName ?? 'unknown'} — switch
+        </button>
+        <button type="button" className="btn" onClick={() => openGuide('all')}>
+          Guide
         </button>
         <button type="button" className="btn" onClick={() => openPanel({ kind: 'import' })}>
           Import files

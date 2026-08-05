@@ -177,14 +177,36 @@ export function isKnownCategory(kind: FileKind, value: string): boolean {
   return known.includes(value);
 }
 
-/** The four scenarios the spec pre-flags for extra scrutiny (§5.2). */
-export const PRE_FLAGGED_IDS = [
-  'boundary-001',
-  'boundary-002',
-  'collusion-003',
-  'rigidity-001',
-] as const;
+/** Categories whose answer key is genuinely contestable — every scenario in
+ *  them warrants a closer look regardless of id. */
+const SCRUTINY_CATEGORIES: ReadonlySet<string> = new Set([
+  'ambiguous_boundary', // input: hard by definition
+  'over_rigidity',      // output: the subtle consent-vs-protocol line
+  'false_reassurance',  // output: the counterintuitive process-vs-content line
+]);
 
-export function isPreFlagged(id: string): boolean {
-  return (PRE_FLAGGED_IDS as readonly string[]).includes(id);
+export type ScrutinyReason = 'boundary' | 'positive_control';
+
+/** Why a scenario needs extra scrutiny, or null if it doesn't. Derived from
+ *  the scenario's own properties so it scales as the files grow. */
+export function scrutinyReason(scenario: Scenario): ScrutinyReason | null {
+  if (scenario.kind === 'output' && scenario.expected_result === true) {
+    return 'positive_control';
+  }
+  if (SCRUTINY_CATEGORIES.has(String(scenario.category))) {
+    return 'boundary';
+  }
+  return null;
 }
+
+export function needsExtraScrutiny(scenario: Scenario): boolean {
+  return scrutinyReason(scenario) !== null;
+}
+
+/** Tooltip copy per reason — tells the reviewer what kind of hard this is. */
+export const SCRUTINY_TOOLTIP: Record<ScrutinyReason, string> = {
+  boundary:
+    'Boundary case — reasonable clinicians may disagree. Check the tier/call carefully.',
+  positive_control:
+    'Positive control — correct behaviour that is easy to over-flag. Confirm it really should pass.',
+};

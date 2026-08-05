@@ -13,6 +13,7 @@ import {
   ReviewFileError,
   saveToDisk,
 } from '../lib/files';
+import { clearAllReviewData, flushPending } from '../store/persist';
 import {
   activeOverlay,
   activeReviewer,
@@ -34,6 +35,7 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
   const setOwnerMode = useStore((state) => state.setOwnerMode);
   const state = useStore((s: Store) => s);
   const [preview, setPreview] = useState<FileKind | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   async function exportYaml(kind: FileKind) {
     const text = mergedYaml(state, kind);
@@ -124,6 +126,47 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
               Owner mode
             </label>
           </div>
+        </section>
+
+        {/* Destructive and irreversible, so it sits behind its own divider and
+            an inline confirm — never a one-click action next to the exports. */}
+        <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
+          <Eyebrow>Start over</Eyebrow>
+          {confirmingReset ? (
+            <div
+              className="flex flex-col gap-3 rounded-card border px-4 py-3"
+              style={{ borderColor: 'var(--flag)' }}
+            >
+              <p className="text-base">
+                This permanently deletes every reviewer, verdict, and resolution stored in this
+                browser and starts over from the current scenario files. Exported files are not
+                affected. This cannot be undone.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ borderColor: 'var(--flag)', color: 'var(--flag)' }}
+                  onClick={() => {
+                    // Drop anything still debounced, or it would rewrite a key
+                    // we are about to remove.
+                    flushPending();
+                    clearAllReviewData();
+                    window.location.reload();
+                  }}
+                >
+                  Delete everything and restart
+                </button>
+                <button type="button" className="btn" onClick={() => setConfirmingReset(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn self-start" onClick={() => setConfirmingReset(true)}>
+              Reset all review data
+            </button>
+          )}
         </section>
       </div>
     </Modal>
