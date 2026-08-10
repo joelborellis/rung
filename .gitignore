@@ -5,3 +5,14 @@ dist
 _scratch
 
 *.tsbuildinfo
+
+# Browser smoke-test screenshots
+artifacts
+
+# Database credentials — never commit. See .env.example for the shape.
+.env
+.env.*
+!.env.example
+
+# Database backups may contain reviewer names and clinical reasoning
+backups

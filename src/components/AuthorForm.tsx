@@ -95,7 +95,10 @@ export function AuthorForm({ tempId, onClose }: Props) {
 
   function build(status: 'draft' | 'submitted'): ProposedScenario | null {
     if (!reviewer) return null;
-    const id = tempId || `new-${reviewer.id}-${String(Date.now()).slice(-6)}`;
+    // UUID, not a clock slice: two reviewers on different machines used to
+    // collide whenever their epoch-ms tails matched, and the loser's proposal
+    // was silently dropped on import.
+    const id = tempId || `new-${crypto.randomUUID()}`;
     const shared = {
       category: effectiveCategory || 'uncategorised',
       description: description.trim(),

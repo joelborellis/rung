@@ -13,7 +13,8 @@ import {
   ReviewFileError,
   saveToDisk,
 } from '../lib/files';
-import { clearAllReviewData, flushPending } from '../store/persist';
+import { clearAllReviewData, discardPending } from '../store/persist';
+import { useSyncStore } from '../sync/useSyncStore';
 import {
   activeOverlay,
   activeReviewer,
@@ -36,6 +37,14 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
   const state = useStore((s: Store) => s);
   const [preview, setPreview] = useState<FileKind | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  // With a server, "reset" is a cache wipe rather than a deletion — but only
+  // once the outbox is empty.
+  const synced = useSyncStore((s) => s.status !== 'local');
+  const unsent = useSyncStore((s) => s.pending);
+  // Server role when there is one; the manual checkbox otherwise. Hiding is
+  // cosmetic — /api/admin/* re-checks on every call.
+  const serverRole = useSyncStore((s) => s.role);
+  const isOwner = synced ? serverRole === 'owner' : ownerMode;
 
   async function exportYaml(kind: FileKind) {
     const text = mergedYaml(state, kind);
@@ -79,6 +88,17 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
 
         <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
           <Eyebrow>Canonical files</Eyebrow>
+          {/* Owner-only, and not as a policy choice — as arithmetic. A
+              reviewer's overlays arrive blind-filtered, so a merge built from
+              them would contain only their own verdicts. Unhiding this button
+              produces a misleading file, not a leak. */}
+          {!isOwner ? (
+            <p className="text-base">
+              The merged scenario files are produced by the project owner, once everyone's verdicts
+              are in. Your own review file above is what you need.
+            </p>
+          ) : (
+            <>
           <p className="text-base">
             The merged YAML carries every reviewer's verdicts. Contested changes export as notes
             until they are resolved — the answer key never moves by accident.
@@ -105,18 +125,21 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
               {mergedYaml(state, preview)}
             </pre>
           )}
+            </>
+          )}
         </section>
 
-        <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
-          <Eyebrow>Owner tools</Eyebrow>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn" onClick={() => openPanel({ kind: 'resolve' })}>
-              Resolve contested items
-            </button>
-            <button type="button" className="btn" onClick={() => openPanel({ kind: 'agreement' })}>
-              Agreement report
-            </button>
-            <label className="chip cursor-pointer">
+        {/* Two different gates, deliberately not merged.
+
+            Synced: the server says who the owner is, and the tools appear
+            without asking. Local (file-only): there is no server role, so the
+            self-declared checkbox is the only way in — and it must sit OUTSIDE
+            the isOwner gate, or the control that enables owner mode is hidden
+            behind owner mode. */}
+        {!synced && (
+          <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
+            <Eyebrow>Owner tools</Eyebrow>
+            <label className="chip cursor-pointer self-start">
               <input
                 type="checkbox"
                 checked={ownerMode}
@@ -125,8 +148,41 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
               />
               Owner mode
             </label>
-          </div>
-        </section>
+            {ownerMode && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn" onClick={() => openPanel({ kind: 'resolve' })}>
+                  Resolve contested items
+                </button>
+                <button type="button" className="btn" onClick={() => openPanel({ kind: 'agreement' })}>
+                  Agreement report
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {synced && isOwner && (
+          <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
+            <Eyebrow>Owner tools</Eyebrow>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn" onClick={() => openPanel({ kind: 'dashboard' })}>
+                Batch progress
+              </button>
+              <button type="button" className="btn" onClick={() => openPanel({ kind: 'people' })}>
+                Manage counselors
+              </button>
+              <button type="button" className="btn" onClick={() => openPanel({ kind: 'resolve' })}>
+                Resolve contested items
+              </button>
+              <button type="button" className="btn" onClick={() => openPanel({ kind: 'agreement' })}>
+                Agreement report
+              </button>
+              <button type="button" className="btn" onClick={() => openPanel({ kind: 'promote' })}>
+                Close batch and start the next
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* Destructive and irreversible, so it sits behind its own divider and
             an inline confirm — never a one-click action next to the exports. */}
@@ -137,25 +193,43 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
               className="flex flex-col gap-3 rounded-card border px-4 py-3"
               style={{ borderColor: 'var(--flag)' }}
             >
-              <p className="text-base">
-                This permanently deletes every reviewer, verdict, and resolution stored in this
-                browser and starts over from the current scenario files. Exported files are not
-                affected. This cannot be undone.
-              </p>
+              {/* Refuse while anything is unsent. Once work has reached the
+                  server this is only a cache wipe and the next load restores
+                  it — but clearing an outbox that has not drained destroys
+                  verdicts that exist nowhere else. */}
+              {unsent > 0 ? (
+                <p className="text-base">
+                  {unsent} {unsent === 1 ? 'verdict hasn' : 'verdicts haven'}'t reached the server
+                  yet. Wait for the header to say Saved, or export your review file first — this
+                  would delete them.
+                </p>
+              ) : (
+                <p className="text-base">
+                  This clears every reviewer, verdict, and resolution stored{' '}
+                  <strong className="font-medium">in this browser</strong> and starts over from the
+                  current scenario files. {synced ? 'Anything already synced comes back on the next load. ' : ''}
+                  Exported files are not affected.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   className="btn"
-                  style={{ borderColor: 'var(--flag)', color: 'var(--flag)' }}
+                  disabled={unsent > 0}
+                  style={{
+                    borderColor: 'var(--flag)',
+                    color: 'var(--flag)',
+                    opacity: unsent > 0 ? 0.5 : 1,
+                  }}
                   onClick={() => {
                     // Drop anything still debounced, or it would rewrite a key
-                    // we are about to remove.
-                    flushPending();
+                    // we are about to remove. Deliberately discard, not flush.
+                    discardPending();
                     clearAllReviewData();
                     window.location.reload();
                   }}
                 >
-                  Delete everything and restart
+                  {synced ? 'Clear this browser and reload' : 'Delete everything and restart'}
                 </button>
                 <button type="button" className="btn" onClick={() => setConfirmingReset(false)}>
                   Cancel
@@ -164,7 +238,7 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <button type="button" className="btn self-start" onClick={() => setConfirmingReset(true)}>
-              Reset all review data
+              {synced ? 'Clear this browser' : 'Reset all review data'}
             </button>
           )}
         </section>

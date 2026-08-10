@@ -7,26 +7,68 @@
   input_tier_scenarios.yaml or output_behavior_scenarios.yaml —
   the app reads them; only the export path writes merged copies.
 
+## What this app is used for (§1.1)
+A repeating batch loop, not a single review pass: enrol 3–8 counselors →
+they review → owner resolves → promote the merged YAML to the next
+batch's canon → run evals → repeat. Identity is global and keyed on
+email, so a returning counselor reuses the link they already have.
+Participation is per-round. Exactly one batch is open at a time.
+
 ## Non-negotiables (spec §-refs)
 - ReviewOverlay architecture (§3): verdicts are an overlay keyed by
   scenario id. Imported scenarios stay immutable in memory. No exceptions.
-- Round-trip fidelity (§4.3, AC-5/6): export diffs must be surgical.
-  Build and test import→export byte-stability BEFORE any UI work.
+- **The database stores only ReviewOverlay.** It never holds a merged
+  result, never parses YAML, and no column means "the canon says X".
+  `api/**` must not import from `src/lib/**` — enforced by
+  scripts/check-import-boundary.mjs, which runs in `npm test`. If you
+  need something from there, move it to `shared/`.
+- **Merging happens only at export time, in the browser.** Including
+  promotion: the client merges and posts the bytes; the server archives
+  them. There must be no server code path that could merge.
+- **The network is never on the Save & next path** (AC-2). `saveReview`
+  writes to the store and a local outbox, synchronously, and returns.
+  Anything that makes it await is a regression.
+- Blind review (§6.1): a reviewer sees another's verdict for scenario X
+  only after saving their own for X. Enforced server-side in
+  api/src/blind.ts — one WHERE clause, one place. Subsetting overlays is
+  allowed; combining them is not.
+- Round-trip fidelity (§4.3, AC-5/6/11): export diffs must be surgical,
+  and DB-sourced exports byte-identical to local ones.
 - Contested changes never silently rewrite expected_tier/expected_result.
 - No gamification, no confetti, no celebratory animation, no sounds (§7).
+- No per-reviewer timing or throughput metrics (§2) — one step from
+  scoring clinicians.
 - Design tokens in §8 are exact — hex values and fonts are not suggestions.
 
-## Build order
-1. Data model + YAML parse/serialize + round-trip tests (AC-5, AC-6)
-2. Store + localStorage persistence (AC-4)
-3. Workspace UI → verdict bar → authoring form → resolution view
-Verify the relevant acceptance criteria (§9) after each phase.
+## Storage rules that will bite you
+- `purgeOldVersions()` in src/store/persist.ts deletes every `srs:*` key
+  not under the current version prefix, at module load. Anything that must
+  survive a version bump goes in `NEVER_PURGE`. The outbox is in there
+  because losing unsent verdicts is the worst failure this app has.
+- Postgres will not infer a type for a parameter used as both `text` and
+  `timestamptz`, or for one a statement never references. Cast explicitly
+  and give each query branch its own parameter list.
 
 ## Stack decisions (already made — don't relitigate)
 Vite + React 18 + TS, Tailwind with CSS-variable tokens, js-yaml,
-Zustand, hash routing only, no backend, no auth.
+Zustand, hash routing only.
+Backend: Postgres on Azure via a small same-origin Node API in `api/`,
+raw `pg`, plain `.sql` migrations, no ORM. Identity is a per-counselor
+invite token in the URL fragment; no passwords, no SSO, no email sending.
+
+(v1 said "no backend, no auth". That was superseded — see §2's
+Superseded note for why.)
+
+## Testing
+- `npm test` — unit + the import-boundary check. No network needed.
+- `npm run test:db` — integration against the real database.
+- `npm run e2e` — HTTP end-to-end; needs `npm run api:dev`.
+- `npm run e2e:browser` — Playwright; needs `api:dev` and `dev`.
+- A test that can pass vacuously is worse than none. Assert the write
+  landed before asserting what is hidden.
 
 ## Conventions
 - TypeScript strict; types in §4 are the contract, extend don't rename
 - Roles render as "Client"/"Coach" in UI, never user/assistant
 - Sentence case in all UI copy; buttons name their exact action
+- Identity never appears in a response: `toReviewer` drops the email

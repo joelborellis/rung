@@ -148,6 +148,26 @@ Add one line to the "three questions" / hard-case section:
 
 # Part 2 — Clear all existing app data (fresh start)
 
+> **Superseded by the backend (spec §1.1).** The reasoning below rests on
+> "every reviewer opens this in their own browser," which stopped being true
+> when verdicts moved to Postgres. Three things changed:
+>
+> 1. **Starting a fresh batch is now a server-side round**, not a storage
+>    version bump. Closing a batch and opening the next is one owner action
+>    (§5.5) and takes effect for everyone immediately.
+> 2. **The purge now invalidates a cache, not a record of work.** Anything
+>    already synced comes back on the next load, so wiping local storage is
+>    recoverable in a way it was not before.
+> 3. **The purge must skip `NEVER_PURGE`** — `srs:outbox`, `srs:session`, and
+>    `srs:content-note-seen`. The outbox holds verdicts that have not reached
+>    the server; a future version bump deleting those would be the worst
+>    failure this app could have. `srs:content-note-seen` is in there because
+>    without it the §7 safety pre-roll reappears on every single load — found
+>    in a browser smoke test, invisible to unit tests.
+>
+> The prefix is now `srs:v3`. Keep the mechanism; do not remove it before the
+> round mechanism it now defers to is proven in a live batch.
+
 Independent of the scrutiny change: wipe all persisted review state so the
 app starts clean for real counselors. The YAML files are already reset to
 `UNREVIEWED`, but the browser still holds the earlier session — reviewers
@@ -155,6 +175,8 @@ app starts clean for real counselors. The YAML files are already reset to
 `localStorage` under the `srs:v1` prefix and would otherwise reload. Clear it.
 
 ## Why a version bump, not just a button
+
+*(Historical — see the note above.)*
 
 Every reviewer opens this in their own browser, so a manual "clear" only
 helps the person who clicks it. Bumping the storage version purges stale data

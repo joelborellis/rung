@@ -7,7 +7,9 @@ import {
   type Store,
 } from '../store/useStore';
 import { FILE_LABELS, type FileKind } from '../types/scenario';
+import { useSyncStore } from '../sync/useSyncStore';
 import { ProgressRing } from './ui';
+import { SyncChip } from './SyncChip';
 
 /** What each file actually asks the reviewer — the question behind the label. */
 const FILE_SUBTITLES: Record<FileKind, string> = {
@@ -27,6 +29,9 @@ export function Header() {
   }));
   const progress = useStore((state: Store) => progressFor(state, state.activeFile));
   const imported = useStore((state) => state.imported);
+  // Local (file-only) mode keeps the old behaviour: one browser legitimately
+  // holds several reviewers, and switching is how you get between them.
+  const canSwitch = useSyncStore((s) => s.status === 'local' || s.role === 'owner');
 
   return (
     <header
@@ -86,19 +91,34 @@ export function Header() {
       <ProgressRing done={progress.done} total={progress.total} />
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          className="chip"
-          onClick={() => openPanel({ kind: 'switch-reviewer' })}
-          title="Switch reviewer or add another"
-        >
-          <span
-            aria-hidden="true"
-            className="h-2 w-2 rounded-full"
-            style={{ background: 'var(--accent)' }}
-          />
-          Reviewing as {reviewer?.displayName ?? 'unknown'} — switch
-        </button>
+        <SyncChip />
+        {/* With a server, switching reviewer is impersonation, not a view
+            toggle — identity comes from the invite link. It stays available to
+            the owner, who legitimately holds several people's overlays. */}
+        {canSwitch ? (
+          <button
+            type="button"
+            className="chip"
+            onClick={() => openPanel({ kind: 'switch-reviewer' })}
+            title="Switch reviewer or add another"
+          >
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-full"
+              style={{ background: 'var(--accent)' }}
+            />
+            Reviewing as {reviewer?.displayName ?? 'unknown'} — switch
+          </button>
+        ) : (
+          <span className="chip" style={{ cursor: 'default' }}>
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-full"
+              style={{ background: 'var(--accent)' }}
+            />
+            Reviewing as {reviewer?.displayName ?? 'unknown'}
+          </span>
+        )}
         <button type="button" className="btn" onClick={() => openGuide('all')}>
           Guide
         </button>

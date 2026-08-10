@@ -7,6 +7,17 @@ import { EMBEDDED_INPUT_YAML, EMBEDDED_OUTPUT_YAML } from '../data/embedded';
 import { buildAgreementReport, type AgreementReport } from '../lib/agreement';
 import { exportMergedYaml, exportSummary } from '../lib/export';
 import { contestedIds } from '../lib/merge';
+import { mergeOverlayInto } from '../../shared/overlay';
+import {
+  queueProposal,
+  queueProposalDelete,
+  queueResolution,
+  queueResolutionDelete,
+  queueReview,
+  queueReviewDelete,
+} from '../sync/queue';
+import { applyPull } from '../sync/pull';
+import { pendingScenarioIds } from '../sync/outbox';
 import { parseScenarioFile, YamlImportError, type ImportWarning } from '../lib/yaml/parse';
 import { slug, todayIso } from '../lib/stamps';
 import {
@@ -47,7 +58,12 @@ export type Panel =
   | { kind: 'agreement' }
   | { kind: 'export' }
   | { kind: 'import' }
-  | { kind: 'switch-reviewer' };
+  | { kind: 'switch-reviewer' }
+  // Owner-only surfaces. Hidden in the UI for anyone else, but the real gate
+  // is the server: every /api/admin endpoint re-checks the role.
+  | { kind: 'dashboard' }
+  | { kind: 'people' }
+  | { kind: 'promote' };
 
 /**
  * Which part of the guide to show. `all` is what the header button opens; the
@@ -89,6 +105,15 @@ type State = {
 type Actions = {
   hydrate: () => void;
   signIn: (displayName: string, credentials: string) => void;
+  adoptSession: (payload: {
+    reviewer: Reviewer;
+    overlays: ReviewOverlay[];
+    resolutions: Record<string, Resolution>;
+  }) => void;
+  applyServerPull: (payload: {
+    overlays: ReviewOverlay[];
+    resolutions: Record<string, Resolution>;
+  }) => void;
   switchReviewer: (reviewerId: string) => void;
   setActiveFile: (kind: FileKind) => void;
   selectScenario: (id: string) => void;
@@ -237,6 +262,71 @@ export const useStore = create<Store>((set, get) => {
       persist(id);
     },
 
+    /**
+     * Adopt an identity and overlays that came from the server.
+     *
+     * Distinct from signIn: identity is not derived from a typed name here,
+     * it arrived with the invite link, and it brings other participants'
+     * (already blind-filtered) overlays with it. Local work is merged rather
+     * than replaced — a reviewer who worked offline must not lose it when the
+     * connection comes back.
+     */
+    adoptSession({ reviewer, overlays, resolutions }) {
+      set((state) => {
+        const exists = state.reviewers.some((entry) => entry.id === reviewer.id);
+        const merged = applyPull({
+          existing: state.overlays,
+          incoming: overlays,
+          selfId: reviewer.id,
+          pending: pendingScenarioIds(),
+        });
+        // The server may not have sent our own overlay yet (a first visit),
+        // and the workspace needs one to write into.
+        if (!merged[reviewer.id]) merged[reviewer.id] = emptyOverlay(reviewer);
+
+        const roster = exists
+          ? state.reviewers.map((entry) => (entry.id === reviewer.id ? reviewer : entry))
+          : [...state.reviewers, reviewer];
+        for (const overlay of overlays) {
+          if (!roster.some((entry) => entry.id === overlay.reviewer.id)) {
+            roster.push(overlay.reviewer);
+          }
+        }
+
+        return {
+          reviewers: roster,
+          overlays: merged,
+          // Owner decisions are the server's to hold; ours are a cache of them.
+          resolutions: { ...state.resolutions, ...resolutions },
+          activeReviewerId: reviewer.id,
+          activeScenarioId:
+            state.activeScenarioId ?? state.set[state.activeFile].scenarios[0]?.id ?? null,
+        };
+      });
+      persist(reviewer.id);
+    },
+
+    /** A poll landed. Same merge rules as adoptSession, no identity change. */
+    applyServerPull({ overlays, resolutions }) {
+      set((state) => ({
+        overlays: applyPull({
+          existing: state.overlays,
+          incoming: overlays,
+          selfId: state.activeReviewerId,
+          pending: pendingScenarioIds(),
+        }),
+        resolutions: { ...state.resolutions, ...resolutions },
+        reviewers: overlays.reduce(
+          (roster, overlay) =>
+            roster.some((entry) => entry.id === overlay.reviewer.id)
+              ? roster
+              : [...roster, overlay.reviewer],
+          state.reviewers,
+        ),
+      }));
+      persist(get().activeReviewerId);
+    },
+
     switchReviewer(reviewerId) {
       set((state) => ({
         activeReviewerId: reviewerId,
@@ -302,6 +392,9 @@ export const useStore = create<Store>((set, get) => {
         };
       });
       persist(reviewerId);
+      // Synchronous, local, and off the network. Save & next advances
+      // immediately whatever the connection is doing (AC-2).
+      queueReview(review);
     },
 
     clearReview(scenarioId) {
@@ -315,6 +408,7 @@ export const useStore = create<Store>((set, get) => {
         return { overlays: { ...state.overlays, [reviewerId]: { ...overlay, reviews } } };
       });
       persist(reviewerId);
+      queueReviewDelete(scenarioId);
     },
 
     upsertProposal(proposal) {
@@ -338,6 +432,7 @@ export const useStore = create<Store>((set, get) => {
         };
       });
       persist(reviewerId);
+      queueProposal(proposal);
     },
 
     removeProposal(tempId) {
@@ -357,16 +452,14 @@ export const useStore = create<Store>((set, get) => {
         };
       });
       persist(reviewerId);
+      queueProposalDelete(tempId);
     },
 
     resolve(resolution) {
-      set((state) => ({
-        resolutions: {
-          ...state.resolutions,
-          [resolution.key]: { ...resolution, resolvedAt: todayIso() },
-        },
-      }));
+      const stamped = { ...resolution, resolvedAt: todayIso() };
+      set((state) => ({ resolutions: { ...state.resolutions, [resolution.key]: stamped } }));
       persist();
+      queueResolution(stamped);
     },
 
     unresolve(key) {
@@ -376,6 +469,7 @@ export const useStore = create<Store>((set, get) => {
         return { resolutions };
       });
       persist();
+      queueResolutionDelete(key);
     },
 
     setOwnerMode(on) {
@@ -496,19 +590,11 @@ export const useStore = create<Store>((set, get) => {
     importOverlay(overlay) {
       set((state) => {
         const exists = state.reviewers.some((entry) => entry.id === overlay.reviewer.id);
-        const existing = state.overlays[overlay.reviewer.id];
         // Merge rather than replace, so a partial file never drops verdicts
-        // already in the workspace for that reviewer.
-        const merged: ReviewOverlay = {
-          reviewer: overlay.reviewer,
-          reviews: { ...(existing?.reviews ?? {}), ...overlay.reviews },
-          proposals: [
-            ...(existing?.proposals ?? []).filter(
-              (entry) => !overlay.proposals.some((incoming) => incoming.tempId === entry.tempId),
-            ),
-            ...overlay.proposals,
-          ],
-        };
+        // already in the workspace for that reviewer — and compare reviewedAt
+        // per scenario, so importing an older export cannot revert newer local
+        // work. Same comparator the sync layer and the server upsert use.
+        const merged = mergeOverlayInto(state.overlays[overlay.reviewer.id], overlay);
         return {
           reviewers: exists ? state.reviewers : [...state.reviewers, overlay.reviewer],
           overlays: { ...state.overlays, [overlay.reviewer.id]: merged },
