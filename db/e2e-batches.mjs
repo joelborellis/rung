@@ -17,6 +17,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { requireUrl, env as readEnv } from './env.mjs';
+import { makeClient } from './http-client.mjs';
 
 const BASE = readEnv().API_BASE_URL ?? 'http://localhost:7071';
 const TAG = `batch-${randomUUID().slice(0, 8)}`;
@@ -34,19 +35,6 @@ function mintToken() {
   return { token, prefix, hash: createHash('sha256').update(token, 'utf8').digest() };
 }
 
-function makeClient() {
-  let cookie = null;
-  return async (path, init = {}) => {
-    const headers = { ...(init.headers ?? {}) };
-    if (cookie) headers.cookie = cookie;
-    if (init.body) headers['content-type'] = 'application/json';
-    const response = await fetch(`${BASE}${path}`, { ...init, headers });
-    const setCookie = response.headers.get('set-cookie');
-    if (setCookie) cookie = setCookie.split(';')[0];
-    const text = await response.text();
-    return { status: response.status, text, json: text ? JSON.parse(text) : null };
-  };
-}
 
 // A tiny two-scenario canon, so the "promoted bytes" comparison is readable.
 const CANON_V1_INPUT = `# test canon
@@ -135,9 +123,9 @@ try {
   const alpha = await addPerson('Alpha');
   const bravo = await addPerson('Bravo');
 
-  const asOwner = makeClient();
-  const asAlpha = makeClient();
-  const asBravo = makeClient();
+  const asOwner = makeClient(BASE);
+  const asAlpha = makeClient(BASE);
+  const asBravo = makeClient(BASE);
 
   console.log(`\nAC-15 — two batches end to end (${BASE})\n`);
   console.log('--- Batch 1 ---');
@@ -292,7 +280,7 @@ try {
   // The blind slate: Alpha reviewed t-001 in batch 1, but that does not unlock
   // anyone's batch-2 verdicts.
   await asBravo('/api/session', { method: 'POST', body: JSON.stringify({ token: bravo.token }) });
-  const asCharlie = makeClient();
+  const asCharlie = makeClient(BASE);
   await asCharlie('/api/session', {
     method: 'POST',
     body: JSON.stringify({ token: charlie.token }),

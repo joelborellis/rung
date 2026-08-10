@@ -16,3 +16,8 @@ artifacts
 
 # Database backups may contain reviewer names and clinical reasoning
 backups
+
+# Deploy artifacts
+server
+deploy
+deploy.zip

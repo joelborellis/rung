@@ -27,7 +27,10 @@ function sha256(text) {
 }
 
 async function main() {
-  const client = new pg.Client({ connectionString: requireUrl('DATABASE_URL') });
+  // Migrations are the one thing that needs DDL, so they are the one thing
+  // that connects as admin. Everything else — the API included — uses
+  // DATABASE_URL, which is the least-privilege rung_app role.
+  const client = new pg.Client({ connectionString: requireUrl('ADMIN_DATABASE_URL') });
   await client.connect();
 
   try {

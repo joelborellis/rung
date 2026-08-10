@@ -32,8 +32,22 @@ export function env() {
   return { ...loadEnv(), ...process.env };
 }
 
+/**
+ * `DATABASE_URL` is the app's connection: the least-privilege `rung_app` role,
+ * CRUD only. `ADMIN_DATABASE_URL` is the admin one, needed solely for DDL —
+ * creating the database and running migrations.
+ *
+ * Keeping the conventional name for the low-privilege URL means the safe thing
+ * is what you get by default, and reaching for admin is a visible choice.
+ */
 export function requireUrl(name = 'DATABASE_URL') {
   const value = env()[name];
-  if (!value) throw new Error(`${name} is not set. Copy .env.example to .env and fill it in.`);
+  if (!value) {
+    const hint =
+      name === 'ADMIN_DATABASE_URL'
+        ? ' This needs the admin role — only migrations and database creation use it.'
+        : '';
+    throw new Error(`${name} is not set. Copy .env.example to .env and fill it in.${hint}`);
+  }
   return value;
 }

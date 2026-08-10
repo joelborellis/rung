@@ -10,6 +10,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { requireUrl, env as readEnv } from './env.mjs';
+import { makeClient } from './http-client.mjs';
 
 const BASE = readEnv().API_BASE_URL ?? 'http://localhost:7071';
 const TAG = `e2e-${randomUUID().slice(0, 8)}`;
@@ -26,19 +27,6 @@ function mintToken() {
 }
 
 /** Minimal cookie-jar fetch. */
-function makeClient() {
-  let cookie = null;
-  return async (path, init = {}) => {
-    const headers = { ...(init.headers ?? {}) };
-    if (cookie) headers.cookie = cookie;
-    if (init.body) headers['content-type'] = 'application/json';
-    const response = await fetch(`${BASE}${path}`, { ...init, headers });
-    const setCookie = response.headers.get('set-cookie');
-    if (setCookie) cookie = setCookie.split(';')[0];
-    const text = await response.text();
-    return { status: response.status, text, json: text ? JSON.parse(text) : null };
-  };
-}
 
 const db = new pg.Client({ connectionString: requireUrl('DATABASE_URL') });
 await db.connect();
@@ -99,7 +87,7 @@ try {
 
   console.log(`\nBlind rule over HTTP (${BASE})\n`);
 
-  const asAlpha = makeClient();
+  const asAlpha = makeClient(BASE);
   const signIn = await asAlpha('/api/session', {
     method: 'POST',
     body: JSON.stringify({ token: alpha.token }),
@@ -142,7 +130,7 @@ try {
   }
 
   // A signed-out client gets nothing.
-  const stranger = makeClient();
+  const stranger = makeClient(BASE);
   const denied = await stranger('/api/overlays');
   if (denied.status === 401) ok('an unauthenticated request is refused (401)');
   else bad('should be 401', `got ${denied.status}`);

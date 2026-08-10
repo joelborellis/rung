@@ -10,6 +10,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { requireUrl, env as readEnv } from './env.mjs';
+import { makeClient } from './http-client.mjs';
 
 const BASE = readEnv().API_BASE_URL ?? 'http://localhost:7071';
 const TAG = `import-${randomUUID().slice(0, 8)}`;
@@ -25,19 +26,6 @@ function mintToken() {
   return { token, prefix, hash: createHash('sha256').update(token, 'utf8').digest() };
 }
 
-function makeClient() {
-  let cookie = null;
-  return async (path, init = {}) => {
-    const headers = { ...(init.headers ?? {}) };
-    if (cookie) headers.cookie = cookie;
-    if (init.body) headers['content-type'] = 'application/json';
-    const response = await fetch(`${BASE}${path}`, { ...init, headers });
-    const set = response.headers.get('set-cookie');
-    if (set) cookie = set.split(';')[0];
-    const text = await response.text();
-    return { status: response.status, text, json: text ? JSON.parse(text) : null };
-  };
-}
 
 const minutesAgo = (n) => new Date(Date.now() - n * 60_000).toISOString();
 
@@ -94,7 +82,7 @@ try {
 
   console.log(`\nReview-file import (${BASE})\n`);
 
-  const asOwner = makeClient();
+  const asOwner = makeClient(BASE);
   const signIn = await asOwner('/api/session', {
     method: 'POST',
     body: JSON.stringify({ token: minted.token }),

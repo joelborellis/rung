@@ -46,6 +46,21 @@ Participation is per-round. Exactly one batch is open at a time.
   scoring clinicians.
 - Design tokens in §8 are exact — hex values and fonts are not suggestions.
 
+## Database credentials
+- `DATABASE_URL` is the **least-privilege** `rung_app` role: CRUD only, no DDL.
+  The API, the seed, the backups, and every test use it. Keeping the
+  conventional name for the safe URL means the safe thing is the default.
+- `ADMIN_DATABASE_URL` is admin, used only by hand-run operator scripts on the
+  allowlist in scripts/check-db-privileges.mjs. `api/`, `src/` and `shared/`
+  must never reference it — enforced in `npm test`.
+- `db:create` derives the app role's name and password from `DATABASE_URL`, so
+  there is one copy of that credential. It refuses to run if `DATABASE_URL`
+  names the same account as `ADMIN_DATABASE_URL` — that bug already shipped once.
+- The server is shared with other databases. `rung_app` has no CONNECT on
+  `elevenlabs_music` (revoked from PUBLIC), which means any new role there needs
+  an explicit grant. `npm run db:verify-role` and `node db/check-blast-radius.mjs`
+  check both halves: what the app role can do, and what it can reach.
+
 ## Storage rules that will bite you
 - `purgeOldVersions()` in src/store/persist.ts deletes every `srs:*` key
   not under the current version prefix, at module load. Anything that must

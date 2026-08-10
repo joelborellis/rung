@@ -10,6 +10,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { requireUrl, env as readEnv } from './env.mjs';
+import { makeClient } from './http-client.mjs';
 
 const BASE = readEnv().API_BASE_URL ?? 'http://localhost:7071';
 const TAG = `owner-${randomUUID().slice(0, 8)}`;
@@ -25,19 +26,6 @@ function mintToken() {
   return { token, prefix, hash: createHash('sha256').update(token, 'utf8').digest() };
 }
 
-function makeClient() {
-  let cookie = null;
-  return async (path, init = {}) => {
-    const headers = { ...(init.headers ?? {}) };
-    if (cookie) headers.cookie = cookie;
-    if (init.body) headers['content-type'] = 'application/json';
-    const response = await fetch(`${BASE}${path}`, { ...init, headers });
-    const setCookie = response.headers.get('set-cookie');
-    if (setCookie) cookie = setCookie.split(';')[0];
-    const text = await response.text();
-    return { status: response.status, text, json: text ? JSON.parse(text) : null };
-  };
-}
 
 const db = new pg.Client({ connectionString: requireUrl('DATABASE_URL') });
 await db.connect();
@@ -88,7 +76,7 @@ try {
 
   console.log(`\nOwner boundary (${BASE})\n`);
 
-  const asReviewer = makeClient();
+  const asReviewer = makeClient(BASE);
   const signIn = await asReviewer('/api/session', {
     method: 'POST',
     body: JSON.stringify({ token: reviewer.token }),
@@ -111,7 +99,7 @@ try {
   }
 
   // Unauthenticated gets 401, not 403 — "who are you" before "may you".
-  const stranger = makeClient();
+  const stranger = makeClient(BASE);
   const anon = await stranger('/api/admin/progress');
   if (anon.status === 401) ok('an unauthenticated caller gets 401, not 403');
   else bad('anon status', `${anon.status}`);

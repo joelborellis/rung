@@ -69,10 +69,14 @@ try {
       minted.hash,
     ]);
     ownerToken = minted.token;
-    await db.query(
-      `insert into round_participants (round_id, person_id) values ($1,$2) on conflict do nothing`,
-      [roundId, ownerRow.rows[0].id],
-    );
+    // Deliberately NOT enrolled as a participant. §6.2: the owner administers
+    // and never reviews, and requireActiveSession admits them on role rather
+    // than enrollment — so they reach everything without a participation row.
+    //
+    // An earlier version of this file enrolled them "so the owner panels would
+    // load". They load anyway, and that row survived the cleanup and then made
+    // e2e-owner-no-review fail — a test that quietly broke the invariant
+    // another test exists to protect.
   }
 
   await db.query(`insert into round_participants (round_id, person_id) values ($1,$2)`, [
@@ -226,8 +230,11 @@ try {
     if (exportPanel.includes('Batch progress')) ok('the owner sees owner tools in the export panel');
     else bad('owner tools', 'Batch progress button missing');
 
-    if (await ownerPage.locator('button:has-text("Batch progress")').isVisible()) {
-      await ownerPage.click('button:has-text("Batch progress")');
+    // Scoped to the Export dialog: "Batch progress" also appears in the owner's
+    // read-only note behind it, and an unscoped selector matches both.
+    const inExport = ownerPage.getByLabel('Export').getByRole('button', { name: 'Batch progress' });
+    if (await inExport.isVisible().catch(() => false)) {
+      await inExport.click();
       await ownerPage.waitForTimeout(1200);
       await ownerPage.screenshot({ path: `${SHOTS}/7-dashboard.png`, fullPage: true });
       const dash = await ownerPage.textContent('body');
