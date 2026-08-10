@@ -70,21 +70,33 @@ export function ExportPanel({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Export" onClose={onClose}>
       <div className="flex flex-col gap-6">
-        <section className="flex flex-col gap-3">
-          <Eyebrow>Your review</Eyebrow>
-          <p className="text-base">
-            The review file carries only your verdicts. Send it back to the project owner — this is
-            what makes your work usable.
-          </p>
-          <button type="button" className="btn btn-primary self-start" onClick={exportReview} disabled={!overlay}>
-            Export my review file
-          </button>
-          {reviewer && (
-            <p className="mono text-sm" style={{ color: 'color-mix(in srgb, var(--ink) 55%, transparent)' }}>
-              {overlay ? reviewFileName(overlay, todayIso()) : ''}
+        {/* The owner records no verdicts (§6.2), so "your review file" would
+            always be empty. They get the archival export of everyone's instead. */}
+        {isOwner && synced ? (
+          <section className="flex flex-col gap-3">
+            <Eyebrow>Reviewers' work</Eyebrow>
+            <p className="text-base">
+              You don't record verdicts — the counselors do. Their answers arrive here as they
+              work; the merged files below carry all of them.
             </p>
-          )}
-        </section>
+          </section>
+        ) : (
+          <section className="flex flex-col gap-3">
+            <Eyebrow>Your review</Eyebrow>
+            <p className="text-base">
+              The review file carries only your verdicts. It's your backup and your escape hatch —
+              your work already syncs to the project owner as you go.
+            </p>
+            <button type="button" className="btn btn-primary self-start" onClick={exportReview} disabled={!overlay}>
+              Export my review file
+            </button>
+            {reviewer && (
+              <p className="mono text-sm" style={{ color: 'color-mix(in srgb, var(--ink) 55%, transparent)' }}>
+                {overlay ? reviewFileName(overlay, todayIso()) : ''}
+              </p>
+            )}
+          </section>
+        )}
 
         <section className="flex flex-col gap-3 border-t pt-5" style={{ borderColor: 'var(--line)' }}>
           <Eyebrow>Canonical files</Eyebrow>

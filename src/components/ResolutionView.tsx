@@ -2,7 +2,7 @@
 // by side with the current value, plus id assignment for submitted scenarios.
 
 import { useMemo, useState } from 'react';
-import { currentLabel } from '../lib/merge';
+import { currentLabel, staleRationaleIds } from '../lib/merge';
 import { allOverlays, nextProposalId, useStore, type Store } from '../store/useStore';
 import { resolutionKey, type ProposedScenario, type Resolution } from '../types/review';
 import { isKnownTier, type FileKind, type Scenario, type Tier } from '../types/scenario';
@@ -97,6 +97,12 @@ export function ResolutionView({ onClose }: { onClose: () => void }) {
     [overlays, kind],
   );
 
+  // Labels you have moved whose justifying prose still argues the old answer.
+  const stale = useMemo(
+    () => staleRationaleIds(file, overlays, resolutions),
+    [file, overlays, resolutions],
+  );
+
   return (
     <Modal title="Resolve contested items" onClose={onClose} width="max-w-5xl">
       <div className="flex flex-col gap-6">
@@ -118,6 +124,31 @@ export function ResolutionView({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </div>
+
+        {/* Not a blocker and not an error — a reading list. The export is
+            correct either way; what may be wrong is prose no reviewer was
+            asked to fix. */}
+        {stale.size > 0 && (
+          <section
+            className="flex flex-col gap-2 rounded-card border px-4 py-3"
+            style={{ borderColor: 'var(--flag)' }}
+          >
+            <Eyebrow>Check the wording before promoting</Eyebrow>
+            <p className="text-base">
+              You moved the answer on {stale.size}{' '}
+              {stale.size === 1 ? 'scenario' : 'scenarios'}, but{' '}
+              {stale.size === 1 ? 'its' : 'their'}{' '}
+              {kind === 'input' ? 'rationale' : 'reason'} still argues the old one. Reviewers
+              aren't prompted to rewrite it — the rewrite only appears when they call the
+              reasoning flawed — so it falls to you.
+            </p>
+            <p className="mono text-sm">{[...stale].join(', ')}</p>
+            <p className="text-sm" style={{ color: 'color-mix(in srgb, var(--ink) 60%, transparent)' }}>
+              Edit the prose in the YAML after export, or accept a reviewer's suggested rewrite
+              above if one exists.
+            </p>
+          </section>
+        )}
 
         <section className="flex flex-col gap-3">
           <Eyebrow>Reviewer proposals</Eyebrow>

@@ -14,6 +14,7 @@ import { requireActiveSession, requireOwner, type Session } from './auth';
 import {
   badRequest,
   conflict,
+  forbidden,
   json,
   noContent,
   notFound,
@@ -54,6 +55,24 @@ async function fileKindMap(
   return map;
 }
 
+/**
+ * The owner administers; the counselors judge.
+ *
+ * The owner sees every verdict by design (§6.1) because resolving disagreement
+ * cannot be done blind — which makes their own verdict worthless as data and
+ * actively harmful to the agreement number. `round_participants` already makes
+ * this structurally impossible (reviews carries an FK to it, and the owner has
+ * no row), but that surfaces as a foreign-key error. This turns it into a rule
+ * with an explanation.
+ */
+function refuseIfOwner(session: Session): void {
+  if (session.role === 'owner') {
+    throw forbidden(
+      'The project owner administers the batch and does not record verdicts — you see every reviewer’s answer, so yours could not be independent.',
+    );
+  }
+}
+
 async function writeReview(
   client: Queryable,
   session: Session & { roundId: string },
@@ -87,6 +106,7 @@ async function writeReview(
  */
 export const postReviewsBatch: Handler = async (request) => {
   const session = await requireActiveSession(request);
+  refuseIfOwner(session);
   const body = requireObject(request.body, 'a JSON object with "upserts" and/or "deletes"');
 
   const rawUpserts = body.upserts === undefined ? [] : body.upserts;
@@ -148,6 +168,7 @@ export const postReviewsBatch: Handler = async (request) => {
 /** PUT /api/reviews/:scenarioId — single-verdict fallback. */
 export const putReview: Handler = async (request) => {
   const session = await requireActiveSession(request);
+  refuseIfOwner(session);
   const scenarioId = decodeURIComponent(request.path.slice('/api/reviews/'.length));
   const review = parseScenarioReview(request.body, session.person.id);
   if (review.scenarioId !== scenarioId) {
@@ -178,6 +199,10 @@ export const deleteReview: Handler = async (request) => {
 /** PUT /api/proposals/:tempId */
 export const putProposal: Handler = async (request) => {
   const session = await requireActiveSession(request);
+  // Authoring is a counselor's contribution too. The owner adds scenarios by
+  // editing the canon, and assigns ids to others' proposals — which is an
+  // update, not an insert, and stays available to them.
+  refuseIfOwner(session);
   const tempId = decodeURIComponent(request.path.slice('/api/proposals/'.length));
   const proposal = parseProposal(request.body, session.person.id, {
     allowOwnerFields: session.role === 'owner',

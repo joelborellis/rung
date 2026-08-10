@@ -250,6 +250,68 @@ export function contestedIds(
   return ids;
 }
 
+/**
+ * Scenarios whose label has been moved but whose prose still argues the old
+ * answer.
+ *
+ * The rationale exists to justify the label. Accept a tier change and the
+ * rationale beneath it is now wrong *by consequence* — but a reviewer will
+ * usually have marked it "sound", because it was coherent prose that happened
+ * to defend an answer they disagreed with. The rewrite affordance only appears
+ * under "flawed", so nobody is asked to fix it.
+ *
+ * Left unflagged, the canon ends up with `expected_tier: pause_and_route`
+ * above a rationale explaining why it is `support_and_continue` — worse than
+ * either version alone, and the eval suite is then graded against it.
+ *
+ * This does not block anything and changes no export. It tells the owner where
+ * to read the prose before promoting.
+ */
+export function staleRationaleIds(
+  file: ScenarioFile,
+  overlays: ReviewOverlay[],
+  resolutions: Record<string, Resolution>,
+): Set<string> {
+  const ids = new Set<string>();
+
+  for (const scenario of file.scenarios) {
+    const entries = entriesFor(scenario.id, overlays);
+
+    // Did an accepted (or manually set) resolution actually move the label?
+    const labelMoved = entries.some(({ overlay, review }) => {
+      if (review.labelVerdict.kind !== 'change') return false;
+      const decision = resolutions[resolutionKey(scenario.id, overlay.reviewer.id, 'label')];
+      if (!decision) return false;
+      if (decision.decision === 'accept') {
+        return String(review.labelVerdict.proposed) !== currentLabel(scenario);
+      }
+      if (decision.decision === 'manual') {
+        return String(decision.manualValue) !== currentLabel(scenario);
+      }
+      return false; // 'keep' leaves the canon alone
+    });
+    if (!labelMoved) continue;
+
+    // Is a rewrite of the justifying prose also going to land? If so the
+    // wording is being addressed and there is nothing to warn about.
+    const field = scenario.kind === 'input' ? 'rationale' : 'reason';
+    const rewriteAccepted = entries.some(({ overlay, review }) => {
+      const edits = review.proposedTextEdits;
+      if (!edits) return false;
+      const touchesJustification =
+        edits[field as 'rationale'] !== undefined || edits.feedback !== undefined;
+      if (!touchesJustification) return false;
+      return (
+        resolutions[resolutionKey(scenario.id, overlay.reviewer.id, 'text')]?.decision === 'accept'
+      );
+    });
+
+    if (!rewriteAccepted) ids.add(scenario.id);
+  }
+
+  return ids;
+}
+
 export function currentLabel(scenario: Scenario): string {
   return scenario.kind === 'input'
     ? String(scenario.expected_tier)

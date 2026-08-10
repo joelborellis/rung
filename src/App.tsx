@@ -1,7 +1,7 @@
 // The single workspace (§3): no router beyond an optional hash deep-link to a
 // scenario. Welcome card until a reviewer signs in, workspace thereafter.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Completion } from './components/Completion';
 import { Header } from './components/Header';
 import {
@@ -51,6 +51,7 @@ export default function App() {
   const activeFile = useStore((state) => state.activeFile);
   const panel = useStore((state) => state.panel);
   const closePanel = useStore((state) => state.closePanel);
+  const openPanel = useStore((state) => state.openPanel);
   const selectScenario = useStore((state) => state.selectScenario);
   const guide = useStore((state) => state.guide);
   const guidance = useStore(activeGuidance);
@@ -121,16 +122,30 @@ export default function App() {
     });
   }, [syncStatus, syncRole, activeReviewerId, applyServerPull]);
 
+  // The owner's job is the batch, not the scenarios: enrol, monitor, resolve,
+  // promote (§5.5). Landing them in the reviewer workspace with the admin
+  // surfaces buried in a menu gets the priority backwards, so open the
+  // dashboard on arrival instead — once per page load, not stickily.
+  const shownDashboard = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !activeReviewerId || needsContentNote) return;
+    if (syncRole !== 'owner' || shownDashboard.current) return;
+    shownDashboard.current = true;
+    openPanel({ kind: 'dashboard' });
+  }, [hydrated, activeReviewerId, needsContentNote, syncRole, openPanel]);
+
   // The two kinds of scenario ask different questions, so each gets its intro
   // once — on arrival, not on request. Reopening the guide from the header is
-  // always the full document.
+  // always the full document. Skipped for the owner: the reviewer guide is
+  // onboarding for reviewing, and it would fight the dashboard above.
   useEffect(() => {
     if (!hydrated || !activeReviewerId) return;
+    if (syncRole === 'owner') return;
     const seen = activeFile === 'input' ? guidance.seenInputIntro : guidance.seenOutputIntro;
     if (seen) return;
     openGuide(activeFile);
     markIntroSeen(activeFile);
-  }, [hydrated, activeReviewerId, activeFile, guidance, openGuide, markIntroSeen]);
+  }, [hydrated, activeReviewerId, activeFile, guidance, openGuide, markIntroSeen, syncRole]);
 
   // AC-4: nothing in flight is lost on a refresh or a tab close. `pagehide`
   // rather than `beforeunload` — the latter never fires on iPadOS, and §2
@@ -248,6 +263,7 @@ function SyncBanner() {
 }
 
 function Workspace() {
+  const isOwner = useSyncStore((s) => s.role === 'owner');
   const scenario = useStore(activeScenario);
   const overlay = useStore(activeOverlay);
   const progress = useStore((state: Store) => progressFor(state, state.activeFile));
@@ -265,6 +281,20 @@ function Workspace() {
         <p className="text-base" style={{ color: 'color-mix(in srgb, var(--ink) 60%, transparent)' }}>
           No scenario selected. Pick one from the list.
         </p>
+      </main>
+    );
+  }
+
+  // The owner reads scenarios — they need the context to resolve a contested
+  // item — but never answers them (§6.2). Reading is the whole of their use for
+  // this screen, so there is no completion state and no verdict bar.
+  if (isOwner) {
+    return (
+      <main className="flex min-w-0 flex-1 flex-col">
+        <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
+          <Stage scenario={scenario} />
+        </div>
+        <OwnerReadOnlyNote />
       </main>
     );
   }
@@ -288,6 +318,34 @@ function Workspace() {
       {showNudge && <FirstScenarioNudge onDismiss={dismissNudge} />}
       <VerdictBar scenario={scenario} />
     </main>
+  );
+}
+
+/**
+ * Where the verdict bar would be, for the owner.
+ *
+ * States the reason rather than just removing the controls: "I can't answer
+ * these" is confusing on its own, and the reason is the interesting part — it
+ * is the same argument that makes blind review necessary.
+ */
+function OwnerReadOnlyNote() {
+  const openPanel = useStore((state) => state.openPanel);
+  return (
+    <div className="border-t" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
+        <p
+          className="min-w-[280px] flex-1 text-sm"
+          style={{ color: 'color-mix(in srgb, var(--ink) 70%, transparent)' }}
+        >
+          You're reading this as the project owner, so there's no verdict to record — you can see
+          every counselor's answer, so yours couldn't be independent. Your job is the batch:
+          enrol counselors, resolve what they disagree on, promote the result.
+        </p>
+        <button type="button" className="btn text-sm" onClick={() => openPanel({ kind: 'dashboard' })}>
+          Batch progress
+        </button>
+      </div>
+    </div>
   );
 }
 

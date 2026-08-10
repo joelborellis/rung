@@ -149,10 +149,25 @@ export function OwnerDashboard({ onClose }: { onClose: () => void }) {
                 </tbody>
               </table>
             </div>
-            {report.reviewers.length === 0 && (
-              <p className="text-base" style={{ color: 'color-mix(in srgb, var(--ink) 60%, transparent)' }}>
-                Nobody is enrolled in this batch yet.
-              </p>
+            {/* An empty table says nothing. A batch with nobody in it has one
+                obvious next step, so say it and offer it. */}
+            {report.reviewers.filter((r) => r.role !== 'owner').length === 0 && (
+              <div
+                className="flex flex-col items-start gap-3 rounded-card border px-4 py-3"
+                style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}
+              >
+                <p className="text-base">
+                  No counselors in this batch yet. Add one and you'll get a link to send them —
+                  they open it and start reviewing, no account to set up.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => openPanel({ kind: 'people' })}
+                >
+                  Add a counselor
+                </button>
+              </div>
             )}
           </section>
 

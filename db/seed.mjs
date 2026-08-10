@@ -159,11 +159,11 @@ try {
   }
   await client.query('update rounds set dataset_id = $1 where id = $2', [datasetId, round.id]);
 
-  await client.query(
-    `insert into round_participants (round_id, person_id) values ($1, $2)
-     on conflict do nothing`,
-    [round.id, owner.id],
-  );
+  // The owner is deliberately not enrolled as a participant: they administer
+  // the batch and do not record verdicts (§6.2). They keep full access — the
+  // session check admits them on role rather than enrollment — but they never
+  // appear in the reviewer roster, and the FK on `reviews` makes an owner
+  // verdict impossible rather than merely discouraged.
 
   await client.query('commit');
 

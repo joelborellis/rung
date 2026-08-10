@@ -32,6 +32,12 @@ Participation is per-round. Exactly one batch is open at a time.
   only after saving their own for X. Enforced server-side in
   api/src/blind.ts — one WHERE clause, one place. Subsetting overlays is
   allowed; combining them is not.
+- **The owner administers and never reviews** (§6.2). Joel is not a
+  counselor. He sees every verdict, so his own could not be independent
+  and would corrupt the agreement number. Enforced three ways: he has no
+  `round_participants` row (and reviews/proposals FK to it, so the DB
+  refuses), `refuseIfOwner` returns 403, and the UI shows no verdict bar.
+  Never enrol the owner as a participant — not in seed, not in promotion.
 - Round-trip fidelity (§4.3, AC-5/6/11): export diffs must be surgical,
   and DB-sourced exports byte-identical to local ones.
 - Contested changes never silently rewrite expected_tier/expected_result.

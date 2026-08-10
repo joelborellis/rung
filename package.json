@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Scenario Review Studio — clinician review app for the Handrail safety eval suite",
   "scripts": {
+    "start": "node scripts/dev-all.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -30,7 +31,8 @@
     "e2e:browser": "node db/smoke-browser.mjs",
     "e2e:batches": "node db/e2e-batches.mjs",
     "e2e:import": "node db/e2e-import.mjs",
-    "e2e": "node db/e2e-blind.mjs && node db/e2e-sync.mjs && node db/e2e-owner.mjs && node db/e2e-import.mjs && node db/e2e-batches.mjs"
+    "e2e:no-review": "node db/e2e-owner-no-review.mjs",
+    "e2e": "node db/e2e-blind.mjs && node db/e2e-sync.mjs && node db/e2e-owner.mjs && node db/e2e-owner-no-review.mjs && node db/e2e-import.mjs && node db/e2e-batches.mjs"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",

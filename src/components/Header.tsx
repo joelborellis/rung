@@ -32,6 +32,7 @@ export function Header() {
   // Local (file-only) mode keeps the old behaviour: one browser legitimately
   // holds several reviewers, and switching is how you get between them.
   const canSwitch = useSyncStore((s) => s.status === 'local' || s.role === 'owner');
+  const isOwner = useSyncStore((s) => s.role === 'owner');
 
   return (
     <header
@@ -88,14 +89,29 @@ export function Header() {
         })}
       </div>
 
-      <ProgressRing done={progress.done} total={progress.total} />
+      {/* The owner has no verdicts, so a progress ring would sit permanently at
+          zero and read as being behind rather than as not applicable. */}
+      {!isOwner && <ProgressRing done={progress.done} total={progress.total} />}
 
       <div className="ml-auto flex items-center gap-2">
         <SyncChip />
-        {/* With a server, switching reviewer is impersonation, not a view
-            toggle — identity comes from the invite link. It stays available to
-            the owner, who legitimately holds several people's overlays. */}
-        {canSwitch ? (
+        {/* The owner does not review (§6.2), so "Reviewing as" would be a
+            false claim about the one person it is most important not to
+            mislabel — the whole point is that their judgement is not in the
+            data. Switching is also meaningless for them: identity comes from
+            the invite link, and they hold no overlay to switch to. */}
+        {isOwner ? (
+          <span className="chip" style={{ cursor: 'default' }} title="You administer this batch">
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-full"
+              style={{ background: 'var(--accent)' }}
+            />
+            {reviewer?.displayName ?? 'unknown'} — Owner
+          </span>
+        ) : canSwitch ? (
+          // Local (file-only) mode: one browser legitimately holds several
+          // reviewers, and switching is how you get between them.
           <button
             type="button"
             className="chip"
@@ -118,6 +134,14 @@ export function Header() {
             />
             Reviewing as {reviewer?.displayName ?? 'unknown'}
           </span>
+        )}
+        {/* The owner's home is the batch, not a scenario. Without a top-level
+            way back, the admin surfaces are only reachable through the Export
+            menu, which reads as an afterthought and hides the job. */}
+        {isOwner && (
+          <button type="button" className="btn" onClick={() => openPanel({ kind: 'dashboard' })}>
+            Batch
+          </button>
         )}
         <button type="button" className="btn" onClick={() => openGuide('all')}>
           Guide

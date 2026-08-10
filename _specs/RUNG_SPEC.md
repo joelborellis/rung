@@ -282,6 +282,23 @@ Plus: **Hard case** toggle (tooltip: "Genuinely ambiguous — reasonable clinici
 
 The agree-everything path must be exactly four keystrokes or four clicks. Throughput on the easy cases buys attention for the hard ones.
 
+**Known gap: a moved label leaves stale prose.** The rewrite affordance hangs off question 2,
+so a reviewer who changes the tier but calls the reasoning *sound* — which is the common
+case, since the prose was usually coherent for the answer they disagreed with — is never
+offered the rationale editor. Accept that change and the canon ends up with
+`expected_tier: pause_and_route` above a rationale arguing for `support_and_continue`.
+
+Deliberately **not** fixed by adding a prompt to the verdict bar: that would put a
+decision on the four-keystroke path AC-2 protects, to solve a problem the owner is better
+placed to judge. Instead the resolution view flags it — `staleRationaleIds` in
+`src/lib/merge.ts` lists scenarios whose label moved without an accompanying accepted
+rewrite, and the owner edits the prose. It blocks nothing and changes no export.
+
+The flag must stay quiet unless something is genuinely wrong: not while a change is
+unresolved, not when it was declined, not when the "change" matched the existing label,
+and not when an accepted rewrite already covers it. A warning that cries wolf is worth
+less than none.
+
 ### 5.4 New scenario authoring
 
 Entered from the rail's `+ New scenario` or from a prompt shown at review completion ("Anything these 24 missed? Add a scenario from your practice."). A guided form, not a YAML editor:
@@ -377,6 +394,32 @@ batch 1 unlocks nothing in batch 2.
 **The hole this cannot close** is the reviewer's memory: once R sees B's disagreement on
 s1, R knows something about B before answering s2. Unavoidable — the alternative is
 never revealing anything, which loses AC-7.
+
+### 6.2 The owner administers and does not review
+
+**Joel is not a counselor. He records no verdicts and authors no scenarios.**
+
+This follows directly from §6.1. The owner sees every verdict, because resolving
+disagreement cannot be done blind — which makes their own verdict the one answer in the
+system that could not possibly be independent. Counting it would contaminate the
+inter-rater number the whole exercise exists to produce.
+
+Enforced at three levels, on purpose:
+
+1. **Structural.** The owner is not a row in `round_participants`. Both `reviews` and
+   `proposals` carry a foreign key to that table, so the database refuses an owner
+   verdict even if every line of application code were wrong.
+2. **API.** `refuseIfOwner` in `api/src/writes.ts` returns 403 with the reason, so the
+   failure reads as a rule rather than a bug.
+3. **UI.** No verdict bar, no progress ring, no "your review file" — the workspace shows
+   the scenario and a note saying why there is nothing to answer. The owner still *reads*
+   scenarios: they need the context to resolve a contested item.
+
+The owner keeps full access without participating — `requireActiveSession` admits them on
+role, not enrollment — and is never enrolled by `seed` or by promotion.
+
+Covered by `db/e2e-owner-no-review.mjs`, which checks all three layers, including a direct
+SQL insert that the foreign key must reject.
 
 ---
 

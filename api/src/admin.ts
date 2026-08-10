@@ -479,11 +479,10 @@ export const promoteRound: Handler = async (request) => {
       nextId,
     ]);
 
-    // 5. The owner is in every batch; counselors are enrolled deliberately.
-    await client.query(
-      `insert into round_participants (round_id, person_id) values ($1,$2) on conflict do nothing`,
-      [nextId, session.person.id],
-    );
+    // The owner is deliberately NOT enrolled: they administer and do not
+    // review (§6.2). requireActiveSession admits them on role, not enrollment,
+    // so they keep full access to the new batch without becoming a reviewer in
+    // it. Counselors are enrolled explicitly, when Joel is ready.
 
     return json({
       closed: { id: current.id, label: current.label },
