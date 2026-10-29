@@ -44,17 +44,21 @@ const verdict = (scenarioId) => ({
 const db = new pg.Client({ connectionString: requireUrl('DATABASE_URL') });
 await db.connect();
 const made = [];
+// The owner's sign-in link this run mints. Left live, every run would add
+// another working owner credential to the database.
+let ownerInvitePrefix = null;
 
 try {
   const round = await db.query(`select id from rounds where status = 'open'`);
   if (round.rowCount === 0) throw new Error('No open round. Run `npm run db:seed` first.');
   const roundId = round.rows[0].id;
 
-  const ownerRow = await db.query(`select id, display_name from people where role='owner' limit 1`);
+  const ownerRow = await db.query(`select id, email, display_name from people where role='owner' limit 1`);
   if (ownerRow.rowCount === 0) throw new Error('No owner. Run `npm run db:seed` first.');
   const owner = ownerRow.rows[0];
 
   const minted = mintToken();
+  ownerInvitePrefix = minted.prefix;
   await db.query(`insert into invites (person_id, token_prefix, token_hash) values ($1,$2,$3)`, [
     owner.id,
     minted.prefix,
@@ -158,6 +162,46 @@ try {
     bad('structural guarantee', 'the database accepted an owner verdict');
   }
 
+  // --- 3b. no path can put the owner back into the batch --------------------
+  // The FK above only holds while the owner has no participation row. Every
+  // enrolment path once let one back in; each is tried here, then the count
+  // is re-read, so a 403 that still wrote something cannot pass.
+  const readded = await asOwner('/api/admin/people', {
+    method: 'POST',
+    body: JSON.stringify({ email: owner.email, displayName: owner.display_name }),
+  });
+  if (readded.status === 403) ok('re-adding the owner by email is refused');
+  else bad('re-add owner', `${readded.status} ${readded.text.slice(0, 200)}`);
+
+  const enrolled = await asOwner('/api/admin/round/participants', {
+    method: 'POST',
+    body: JSON.stringify({ personIds: [owner.id] }),
+  });
+  if (enrolled.status === 403) ok('enrolling the owner in the batch is refused');
+  else bad('enrol owner', `${enrolled.status} ${enrolled.text.slice(0, 200)}`);
+
+  let triggerRefused = false;
+  await db.query('begin');
+  try {
+    await db.query(`insert into round_participants (round_id, person_id) values ($1,$2)`, [
+      roundId,
+      owner.id,
+    ]);
+  } catch (error) {
+    triggerRefused = /round_participants_not_owner|does not review/i.test(error.message);
+  } finally {
+    await db.query('rollback');
+  }
+  if (triggerRefused) ok('a direct SQL insert of the owner as a participant is refused by the trigger');
+  else bad('participation trigger', 'the database accepted the owner as a participant');
+
+  const after = await db.query(
+    'select count(*)::int as n from round_participants where person_id = $1',
+    [owner.id],
+  );
+  if (after.rows[0].n === 0) ok('the owner is still not a participant after every attempt');
+  else bad('participation after attempts', `${after.rows[0].n} rows`);
+
   // --- 4. the owner is not in the reviewer roster --------------------------
   const progress = await asOwner('/api/admin/progress');
   const names = (progress.json.reviewers ?? []).map((r) => r.displayName);
@@ -204,6 +248,9 @@ try {
     await db.query('delete from round_participants where person_id = any($1::uuid[])', [made]);
     await db.query('delete from invites where person_id = any($1::uuid[])', [made]);
     await db.query('delete from people where id = any($1::uuid[])', [made]);
+  }
+  if (ownerInvitePrefix) {
+    await db.query('delete from invites where token_prefix = $1', [ownerInvitePrefix]);
   }
   await db.end();
 }

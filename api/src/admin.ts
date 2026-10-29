@@ -10,6 +10,7 @@ import { requireOwner } from './auth';
 import {
   badRequest,
   conflict,
+  forbidden,
   json,
   noContent,
   notFound,
@@ -37,6 +38,14 @@ async function openRound(client: Queryable = db()): Promise<{ id: string; label:
   if (!round) throw notFound('No batch is open. Open one before doing this.');
   return round;
 }
+
+/**
+ * §6.2 — every path that enrols someone must refuse the owner. Migration 0004
+ * backs this with a trigger; this turns the trigger's error into a rule with
+ * an explanation, as refuseIfOwner does for verdicts.
+ */
+const OWNER_NOT_ENROLLED =
+  'The project owner administers the batch and does not review, so they cannot be added to it.';
 
 // ---------------------------------------------------------------------------
 // People and invites
@@ -124,9 +133,11 @@ export const createPerson: Handler = async (request) => {
   }
 
   return transaction(async (client) => {
-    const existing = await client.query<{ id: string }>('select id from people where email = $1', [
-      email,
-    ]);
+    const existing = await client.query<{ id: string; role: string }>(
+      'select id, role from people where email = $1',
+      [email],
+    );
+    if (existing.rows[0]?.role === 'owner') throw forbidden(OWNER_NOT_ENROLLED);
 
     let personId: string;
     if (existing.rowCount! > 0) {
@@ -234,6 +245,12 @@ export const setParticipants: Handler = async (request) => {
   if (!ids) throw badRequest('BAD_FIELD', '"personIds" must be an array.');
 
   return transaction(async (client) => {
+    const owners = await client.query(
+      `select 1 from people where role = 'owner' and id::text = any($1::text[])`,
+      [ids],
+    );
+    if (owners.rowCount! > 0) throw forbidden(OWNER_NOT_ENROLLED);
+
     for (const personId of ids) {
       await client.query(
         `insert into round_participants (round_id, person_id) values ($1,$2) on conflict do nothing`,
@@ -575,6 +592,7 @@ export const importOverlayFile: Handler = async (request) => {
         )
       ).rows[0]!;
     }
+    if (person.role === 'owner') throw forbidden(OWNER_NOT_ENROLLED);
 
     await client.query(
       `insert into round_participants (round_id, person_id) values ($1,$2) on conflict do nothing`,

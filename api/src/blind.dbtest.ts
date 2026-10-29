@@ -79,7 +79,9 @@ async function scenario(): Promise<Ctx> {
   const c = await person('Charlie');
   const owner = await person('Olive', 'owner');
 
-  for (const id of [a, b, c, owner]) {
+  // Not the owner: they are never a participant (§6.2, migration 0004), and
+  // their view comes from isOwner, not from enrolment.
+  for (const id of [a, b, c]) {
     await client.query(
       `insert into round_participants (round_id, person_id) values ($1, $2)`,
       [roundId, id],

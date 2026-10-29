@@ -239,12 +239,20 @@ export function PeopleAdmin({ onClose }: { onClose: () => void }) {
                   )}
 
                   <span className="ml-auto flex flex-wrap gap-2">
-                    {!person.inCurrentBatch && !person.revoked && (
+                    {person.role === 'owner' && (
+                      <span
+                        className="chip"
+                        style={{ cursor: 'default', color: 'color-mix(in srgb, var(--ink) 60%, transparent)' }}
+                      >
+                        owner — does not review
+                      </span>
+                    )}
+                    {person.role !== 'owner' && !person.inCurrentBatch && !person.revoked && (
                       <button type="button" className="btn" disabled={busy} onClick={() => void enrol(person)}>
                         Add to this batch
                       </button>
                     )}
-                    {person.inCurrentBatch && (
+                    {person.role !== 'owner' && person.inCurrentBatch && (
                       <span
                         className="chip"
                         style={{ cursor: 'default', color: 'color-mix(in srgb, var(--ink) 60%, transparent)' }}
