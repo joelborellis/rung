@@ -13,7 +13,7 @@
 // prod-server.ts resolves STATIC_DIR relative to cwd, which App Service sets to
 // wwwroot, so `dist` sitting beside index.js is what it expects.
 
-import { cpSync, existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -62,15 +62,34 @@ function bytes(dir) {
 console.log(`\nStaged ${(bytes(STAGE) / 1024 / 1024).toFixed(2)} MB in deploy/`);
 for (const entry of readdirSync(STAGE)) console.log(`  ${entry}`);
 
-// PowerShell's Compress-Archive is on every Windows box; no zip dependency.
-execFileSync(
-  'powershell',
-  [
-    '-NoProfile',
-    '-Command',
-    `Compress-Archive -Path '${STAGE}\\*' -DestinationPath '${ZIP}' -Force`,
-  ],
-  { stdio: 'inherit' },
-);
+// Windows' own tar.exe (bsdtar, in System32 since Windows 10) writes a real zip
+// with -a; no zip dependency. Not Compress-Archive: Windows PowerShell 5.1's
+// version writes entry names with backslashes, and Azure's Linux build then
+// treats "dist\index.html" as one filename and fails the deploy. The full path
+// matters too: Git Bash puts GNU tar first on PATH, and that cannot write zip.
+const TAR = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+execFileSync(TAR, ['-a', '-c', '-f', ZIP, '-C', STAGE, ...readdirSync(STAGE)], { stdio: 'inherit' });
+
+// Check the result rather than trusting the tool: read every entry name from
+// the zip's central directory. A bad package otherwise only shows up as a
+// failed deploy on the server.
+const CENTRAL = Buffer.from('PK\x01\x02', 'latin1');
+const zip = readFileSync(ZIP);
+const names = [];
+for (let at = zip.indexOf(CENTRAL); at !== -1; at = zip.indexOf(CENTRAL, at + 4)) {
+  const nameLength = zip.readUInt16LE(at + 28);
+  names.push(zip.toString('utf8', at + 46, at + 46 + nameLength));
+}
+const backslashed = names.filter((name) => name.includes('\\'));
+if (backslashed.length > 0) {
+  console.error(`deploy.zip has backslashes in entry names, which Linux cannot extract:\n  ${backslashed.join('\n  ')}`);
+  process.exit(1);
+}
+for (const required of ['index.js', 'package.json', 'dist/index.html']) {
+  if (!names.includes(required)) {
+    console.error(`deploy.zip is missing ${required}. Entries:\n  ${names.join('\n  ')}`);
+    process.exit(1);
+  }
+}
 
 console.log(`\ndeploy.zip ready (${(statSync(ZIP).size / 1024 / 1024).toFixed(2)} MB)`);
